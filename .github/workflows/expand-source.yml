@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'BuildAPP_Release.tar.xz'
+      - 'BuildAPP_Release.part05.b64'
   workflow_dispatch:
 
 permissions:
@@ -18,11 +18,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract full project source
+      - name: Reassemble source archive
         run: |
           set -euo pipefail
-          test -s BuildAPP_Release.tar.xz
-          tar -xJf BuildAPP_Release.tar.xz -C .
+          cat BuildAPP_Release.part*.b64 > source.tar.xz.b64
+          base64 --decode source.tar.xz.b64 > source.tar.xz
+          tar -tJf source.tar.xz >/dev/null
+          tar -xJf source.tar.xz -C .
           test -f settings.gradle.kts
           test -f app/src/main/java/com/buildapp/builder/MainActivity.kt
           test -f .github/workflows/build-generated.yml
@@ -58,9 +60,10 @@ jobs:
       - name: Commit expanded project files
         run: |
           set -euo pipefail
+          rm -f BuildAPP_Release.part*.b64 source.tar.xz.b64 source.tar.xz
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- ':!BuildAPP_Release.tar.xz'
+          git add -A
           if ! git diff --cached --quiet; then
             git commit -m "Add Build.APP source project"
             git push
