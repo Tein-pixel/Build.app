@@ -1,0 +1,67 @@
+name: Expand source and build Build.APP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'BuildAPP_Release.tar.xz'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  expand-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract full project source
+        run: |
+          set -euo pipefail
+          test -s BuildAPP_Release.tar.xz
+          tar -xJf BuildAPP_Release.tar.xz -C .
+          test -f settings.gradle.kts
+          test -f app/src/main/java/com/buildapp/builder/MainActivity.kt
+          test -f .github/workflows/build-generated.yml
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35 SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build Builder APK
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Upload Builder APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuildAPP-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Commit expanded project files
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- ':!BuildAPP_Release.tar.xz'
+          if ! git diff --cached --quiet; then
+            git commit -m "Add Build.APP source project"
+            git push
+          fi
