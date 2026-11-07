@@ -596,7 +596,22 @@ private fun BuildAppScreen() {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     TextButton(onClick = { showMenu = false; showSettings = true }) { Text("SETTINGS  /  API & GITHUB") }
                     TextButton(onClick = { showMenu = false; status = "INFO // Build.APP membuat APK berbasis WebView." }) { Text("ABOUT  /  VERSION INFO") }
-                    TextButton(onClick = { showMenu = false; status = "READY // tulis prompt untuk memulai project baru." }) { Text("NEW PROJECT  /  RESET STATUS") }
+                    TextButton(
+                        enabled = !busy,
+                        onClick = {
+                            showMenu = false
+                            projectName = "Aplikasi Baru"
+                            packageId = createDefaultPackageId()
+                            prompt = ""
+                            logo = null
+                            optionalPermissions = emptySet()
+                            showAllPermissions = false
+                            generatedHtml = null
+                            generatedApk = null
+                            previewVersion++
+                            status = "READY // project baru"
+                        }
+                    ) { Text("NEW PROJECT  /  RESET PROJECT") }
                 }
             },
             confirmButton = { TextButton(onClick = { showMenu = false }) { Text("TUTUP") } }
