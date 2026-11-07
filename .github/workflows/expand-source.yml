@@ -66,6 +66,16 @@ jobs:
                   raise SystemExit("Could not locate GitHub repository validation insertion point")
               text = text.replace(marker, guard, 1)
               client.write_text(text, encoding="utf-8")
+          # Return the OkHttp response body from requestHtml(); without this,
+          # Kotlin rejects the function's block body as missing a return value.
+          llm = Path("app/src/main/java/com/buildapp/builder/network/OpenRouterClient.kt")
+          llm_text = llm.read_text(encoding="utf-8")
+          old_call = "        client.newCall(request).execute().use { response ->"
+          if "return client.newCall(request).execute().use { response ->" not in llm_text:
+              if old_call not in llm_text:
+                  raise SystemExit("Could not locate OpenRouter response block")
+              llm_text = llm_text.replace(old_call, "        return client.newCall(request).execute().use { response ->", 1)
+              llm.write_text(llm_text, encoding="utf-8")
           PY
 
       - name: Set up JDK 17
