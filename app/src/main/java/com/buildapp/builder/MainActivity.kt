@@ -86,14 +86,15 @@ import java.io.File
 import java.util.Locale
 import java.util.UUID
 
-private val Ink = Color(0xFF08090B)
-private val Panel = Color(0xFF111214)
-private val PanelRaised = Color(0xFF17191C)
-private val Stroke = Color(0xFF303338)
-private val Muted = Color(0xFF999FA8)
-private val Bright = Color(0xFFF3F4F6)
-private val Accent = Color(0xFF8BB8FF)
-private val Success = Color(0xFF76D7A5)
+private val Ink = Color(0xFF080D18)
+private val Panel = Color(0xFF111A2B)
+private val PanelRaised = Color(0xFF18243A)
+private val Stroke = Color(0xFF293B59)
+private val Muted = Color(0xFFA5B2C8)
+private val Bright = Color(0xFFF4F7FF)
+private val Accent = Color(0xFF70A9FF)
+private val AccentViolet = Color(0xFF9C8BFF)
+private val Success = Color(0xFF72E0B0)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -160,6 +161,7 @@ private fun BuildAppScreen() {
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showMenu by rememberSaveable { mutableStateOf(false) }
     var showAllPermissions by rememberSaveable { mutableStateOf(false) }
+    var showAdvancedSettings by rememberSaveable { mutableStateOf(false) }
     var projectName by rememberSaveable { mutableStateOf("Aplikasi Baru") }
     var packageId by rememberSaveable { mutableStateOf(createDefaultPackageId()) }
     var prompt by rememberSaveable { mutableStateOf("") }
@@ -223,7 +225,7 @@ private fun BuildAppScreen() {
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Compact app bar styled after the supplied reference.
+            // Brand bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -248,9 +250,39 @@ private fun BuildAppScreen() {
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFF20242B)),
                     contentAlignment = Alignment.Center
-                ) { Text("</>", color = Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                ) {
+                    Text("B", color = Bright, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                }
             }
 
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Text("IDE JADI APK.", color = Bright, fontSize = 27.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.8).sp)
+                Text("Ceritakan aplikasi atau game yang ingin kamu buat. AI akan menyiapkan project untuk dipreview dan dibuild.", color = Muted, fontSize = 11.sp, lineHeight = 17.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(Success))
+                    Text("AI BUILDER  •  ANDROID APK", color = Accent, fontSize = 9.sp, letterSpacing = 1.1.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
+                    .background(PanelRaised).padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("PENGATURAN PROJECT", color = Bright, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Nama, ikon, package ID, dan permission", color = Muted, fontSize = 9.sp)
+                }
+                TextButton(onClick = { showAdvancedSettings = !showAdvancedSettings }) {
+                    Text(if (showAdvancedSettings) "TUTUP  −" else "ATUR  +", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            androidx.compose.animation.AnimatedVisibility(visible = showAdvancedSettings) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionCard(number = "01", title = "IDENTITAS PROJECT", subtitle = "NAMA DAN PACKAGE APLIKASI") {
                 OutlinedTextField(
                     value = projectName,
@@ -363,7 +395,10 @@ private fun BuildAppScreen() {
                 )
             }
 
-            SectionCard(number = "04", title = "PROMPT", subtitle = "DESKRIPSI APP / GAME") {
+            }
+            }
+
+            SectionCard(number = "04", title = "DESKRIPSI IDE", subtitle = "APA YANG INGIN KAMU BANGUN?") {
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     FilterChip(
                         selected = false,
@@ -438,7 +473,7 @@ private fun BuildAppScreen() {
                         CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp, color = Ink)
                         Spacer(Modifier.width(9.dp))
                     }
-                    Text(if (busy && generatedHtml == null) "GENERATING..." else "GENERATE PROJECT", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(if (busy && generatedHtml == null) "AI SEDANG MEMBUAT..." else "BUAT PROJECT", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
 
@@ -563,9 +598,9 @@ private fun BuildAppScreen() {
             }
 
             Text(
-                "OUTPUT: APK WEBVIEW (HTML / CSS / JS)  •  BUILD: GITHUB ACTIONS",
+                "OUTPUT: ANDROID WEB APP / GAME 2D  •  BUILD: GITHUB ACTIONS",
                 color = Muted,
-                fontSize = 8.sp,
+                fontSize = 9.sp,
                 letterSpacing = 0.6.sp,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
             )
@@ -606,6 +641,7 @@ private fun BuildAppScreen() {
                             logo = null
                             optionalPermissions = emptySet()
                             showAllPermissions = false
+                            showAdvancedSettings = false
                             generatedHtml = null
                             generatedApk = null
                             previewVersion++
