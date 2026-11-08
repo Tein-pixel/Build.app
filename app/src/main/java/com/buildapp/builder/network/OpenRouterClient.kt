@@ -34,7 +34,7 @@ object OpenRouterClient {
     suspend fun generateHtml(
         userPrompt: String,
         config: BuildConfig,
-        onProgress: (String) -> Unit = {}
+        onProgress: suspend (String) -> Unit = {}
     ): String = withContext(Dispatchers.IO) {
         require(config.openRouterKey.isNotBlank()) { "API key OpenRouter belum diisi." }
         require(config.modelId.isNotBlank()) { "Model ID belum diisi." }
@@ -70,11 +70,11 @@ object OpenRouterClient {
         )
     }
 
-    private fun generateCompleteDocument(
+    private suspend fun generateCompleteDocument(
         model: String,
         userPrompt: String,
         apiKey: String,
-        onProgress: (String) -> Unit
+        onProgress: suspend (String) -> Unit
     ): String {
         val messages = JSONArray()
             .put(JSONObject().put("role", "system").put("content", systemPrompt()))
@@ -274,7 +274,9 @@ object OpenRouterClient {
     private fun isCompleteHtml(raw: String): Boolean {
         val value = raw.trim()
         return value.contains("<html", ignoreCase = true) &&
-            value.contains("</html>", ignoreCase = true)
+            value.contains("</html>", ignoreCase = true) &&
+            value.contains("<body", ignoreCase = true) &&
+            value.contains("</body>", ignoreCase = true)
     }
 
     private fun normalizeHtml(raw: String): String {
