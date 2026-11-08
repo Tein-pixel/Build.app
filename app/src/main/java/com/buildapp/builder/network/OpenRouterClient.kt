@@ -9,70 +9,168 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+/**
+ * OpenRouter client for single-file Android WebView projects.
+ *
+ * Handles:
+ * - model-level fallback,
+ * - long completions and truncated output continuation,
+ * - one focused repair pass before returning an error,
+ * - text responses returned as either a string or content-block array.
+ */
 object OpenRouterClient {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(25, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(150, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
+        .writeTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(210, TimeUnit.SECONDS)
         .build()
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
-    suspend fun generateHtml(userPrompt: String, config: BuildConfig): String = withContext(Dispatchers.IO) {
+    suspend fun generateHtml(
+        userPrompt: String,
+        config: BuildConfig,
+        onProgress: (String) -> Unit = {}
+    ): String = withContext(Dispatchers.IO) {
         require(config.openRouterKey.isNotBlank()) { "API key OpenRouter belum diisi." }
         require(config.modelId.isNotBlank()) { "Model ID belum diisi." }
+        require(userPrompt.isNotBlank()) { "Deskripsi project masih kosong." }
         require(userPrompt.length <= 18_000) { "Prompt terlalu panjang. Batas awal 18.000 karakter." }
 
-        val primaryModel = config.modelId.trim()
-        val fallbackModel = if (primaryModel == DEFAULT_MODEL) FALLBACK_MODEL else DEFAULT_MODEL
-        val candidates = listOf(primaryModel, fallbackModel).distinct()
+        val primary = config.modelId.trim()
+        val candidates = listOf(primary, DEFAULT_MODEL, FALLBACK_MODEL).distinct()
         var lastError: Exception? = null
 
         for ((index, model) in candidates.withIndex()) {
             try {
-                return@withContext requestHtml(model, userPrompt, config.openRouterKey)
+                onProgress("Menghubungi model ${model.substringAfterLast('/') }…")
+                return@withContext generateCompleteDocument(model, userPrompt, config.openRouterKey, onProgress)
             } catch (error: Exception) {
-                val canRetry = index < candidates.lastIndex && (
-                    error is java.io.IOException ||
-                    error is ModelUnavailableException ||
-                    error is IllegalArgumentException
-                )
-                if (!canRetry) throw error
                 lastError = error
+                val retryable = error is IOException ||
+                    error is ModelUnavailableException ||
+                    error is IncompleteHtmlException
+                if (!retryable || index == candidates.lastIndex) {
+                    throw IllegalStateException(
+                        "Generator gagal pada ${model}. ${error.message ?: "Tidak ada respons valid."}",
+                        error
+                    )
+                }
+                onProgress("Model utama bermasalah. Beralih ke model gratis cadangan…")
             }
         }
 
-        throw IllegalStateException("Model utama dan fallback gagal: ${lastError?.message ?: "Tidak ada respons AI."}")
+        throw IllegalStateException(
+            "Semua model gagal menghasilkan project. ${lastError?.message ?: "Coba lagi beberapa saat."}",
+            lastError
+        )
     }
 
-    private fun requestHtml(model: String, userPrompt: String, apiKey: String): String {
-        val systemPrompt = """
-            Kamu adalah senior front-end engineer yang membuat aplikasi web satu-file untuk Android WebView.
-            Hasilkan SATU dokumen HTML lengkap berisi CSS dan JavaScript inline.
-            Aturan wajib:
-            - Output hanya kode HTML. Jangan gunakan Markdown atau penjelasan.
-            - Mulai dengan <!doctype html> dan tutup dengan </html>.
-            - Mobile-first untuk layar Android, responsive, touch-friendly, dan aman untuk WebView.
-            - Gunakan HTML semantik, CSS modern, ukuran teks terbaca, serta state dan error handling.
-            - Simpan data lokal dengan localStorage bila memang dibutuhkan.
-            - Jangan memakai framework, CDN, import module, atau aset eksternal kecuali diminta pengguna.
-            - Jangan membuat tombol/fitur palsu. Semua kontrol harus benar-benar berfungsi.
-            - Game harus ringan, touch-first, dan 2D. Jangan mengklaim membuat native Android atau game 3D.
-            - Hindari akses file, permission browser, popup, dan javascript bridge native.
-            - Pastikan tidak ada teks placeholder, TODO, atau kode yang terpotong.
-        """.trimIndent()
+    private fun generateCompleteDocument(
+        model: String,
+        userPrompt: String,
+        apiKey: String,
+        onProgress: (String) -> Unit
+    ): String {
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt()))
+            .put(JSONObject().put("role", "user").put("content", buildUserPrompt(userPrompt)))
 
+        onProgress("AI sedang merancang struktur dan kode…")
+        val first = requestCompletion(model, messages, apiKey, INITIAL_MAX_TOKENS)
+        var output = first.content.trim()
+        var finishReason = first.finishReason
+
+        // A model can reach its output-token limit before closing the HTML document.
+        // Continue with the assistant's exact partial answer instead of discarding it.
+        var continuation = 0
+        while (!isCompleteHtml(output) && continuation < MAX_CONTINUATIONS) {
+            continuation++
+            onProgress("Melanjutkan kode yang belum selesai ($continuation/$MAX_CONTINUATIONS)…")
+            messages.put(JSONObject().put("role", "assistant").put("content", output))
+            messages.put(
+                JSONObject().put(
+                    "role",
+                    "user"
+                ).put(
+                    "content",
+                    "Lanjutkan persis dari karakter terakhir jawaban sebelumnya. Jangan ulangi kode yang sudah ada. " +
+                        "Keluarkan hanya sisa kode HTML/CSS/JavaScript sampai dokumen benar-benar ditutup dengan </html>. " +
+                        "Jangan memberi penjelasan atau Markdown."
+                )
+            )
+            val next = requestCompletion(model, messages, apiKey, CONTINUATION_MAX_TOKENS)
+            finishReason = next.finishReason
+            val nextContent = next.content.trim()
+            if (nextContent.isBlank()) break
+
+            // Some providers ignore continuation instructions and regenerate the full file.
+            // Prefer that complete answer; otherwise append only the returned fragment.
+            output = if (isCompleteHtml(nextContent)) {
+                nextContent
+            } else {
+                output + "\n" + nextContent
+            }
+        }
+
+        if (isCompleteHtml(output)) {
+            onProgress("Memvalidasi struktur dokumen HTML…")
+            return normalizeHtml(output)
+        }
+
+        // One repair attempt is cheaper and more useful than returning the old generic error.
+        onProgress("Memperbaiki respons AI yang belum lengkap…")
+        val repairMessages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt()))
+            .put(
+                JSONObject().put(
+                    "role",
+                    "user"
+                ).put(
+                    "content",
+                    buildString {
+                        append(buildUserPrompt(userPrompt))
+                        append("\n\nHASIL AI SEBELUMNYA (BELUM LENGKAP):\n")
+                        append(output.take(MAX_REPAIR_CONTEXT_CHARS))
+                        append(
+                            "\n\nTUGAS PERBAIKAN: Buat ulang menjadi satu dokumen HTML lengkap dan valid. " +
+                                "Jangan menjelaskan, jangan memakai Markdown, jangan memotong fitur inti. " +
+                                "Pastikan dimulai dari <!doctype html> atau <html> dan diakhiri </html>. " +
+                                "Keluarkan seluruh dokumen final, bukan potongan."
+                        )
+                    }
+                )
+            )
+
+        val repaired = requestCompletion(model, repairMessages, apiKey, REPAIR_MAX_TOKENS)
+        if (isCompleteHtml(repaired.content)) {
+            onProgress("Auto-repair berhasil. Memeriksa HTML final…")
+            return normalizeHtml(repaired.content)
+        }
+
+        val reason = finishReason.ifBlank { "tidak diketahui" }
+        throw IncompleteHtmlException(
+            "Respons model masih tidak lengkap setelah $continuation lanjutan dan 1 auto-repair " +
+                "(finish_reason: $reason). Kurangi kompleksitas project atau coba model lain."
+        )
+    }
+
+    private fun requestCompletion(
+        model: String,
+        messages: JSONArray,
+        apiKey: String,
+        maxTokens: Int
+    ): ModelResponse {
         val payload = JSONObject().apply {
             put("model", model)
-            put("temperature", 0.2)
-            put("max_tokens", 12_000)
-            put("messages", JSONArray().apply {
-                put(JSONObject().put("role", "system").put("content", systemPrompt))
-                put(JSONObject().put("role", "user").put("content", userPrompt.trim()))
-            })
+            put("temperature", 0.15)
+            put("max_tokens", maxTokens)
+            put("messages", messages)
+            put("provider", JSONObject().put("allow_fallbacks", true))
         }
 
         val request = Request.Builder()
@@ -86,57 +184,138 @@ object OpenRouterClient {
         return client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val message = runCatching {
-                    JSONObject(body).optJSONObject("error")?.optString("message")
-                }.getOrNull().orEmpty()
-                val detail = message.ifBlank { body.take(260).ifBlank { "Permintaan gagal." } }
-                if (response.code in setOf(404, 408, 429, 502, 503, 504)) {
-                    throw ModelUnavailableException("OpenRouter ${response.code}: $detail")
+                val errorObject = runCatching { JSONObject(body).optJSONObject("error") }.getOrNull()
+                val message = errorObject?.optString("message").orEmpty()
+                    .ifBlank { body.take(300) }
+                    .ifBlank { "Permintaan gagal tanpa detail dari provider." }
+
+                if (response.code in setOf(408, 429, 502, 503, 504) ||
+                    response.code == 404 ||
+                    response.code == 529
+                ) {
+                    throw ModelUnavailableException("OpenRouter ${response.code}: $message")
                 }
-                throw IllegalStateException("OpenRouter ${response.code}: $detail")
+                if (response.code == 401 || response.code == 403) {
+                    throw IllegalStateException(
+                        "API key ditolak OpenRouter (${response.code}). Periksa API key dan status kredit/limit akun."
+                    )
+                }
+                throw IllegalStateException("OpenRouter ${response.code}: $message")
             }
 
-            val root = JSONObject(body)
+            val root = runCatching { JSONObject(body) }.getOrElse {
+                throw IncompleteHtmlException("Respons OpenRouter bukan JSON yang valid.")
+            }
             val choices = root.optJSONArray("choices")
-                ?: throw IllegalArgumentException("Respons AI tidak memiliki choices.")
-            val message = choices.optJSONObject(0)?.optJSONObject("message")
-                ?: throw IllegalArgumentException("Respons AI kosong.")
-            val raw = extractContent(message.opt("content"))
-            normalizeHtml(raw)
+                ?: throw IncompleteHtmlException(
+                    root.optJSONObject("error")?.optString("message")
+                        ?: "Respons AI tidak memiliki daftar choices."
+                )
+            val choice = choices.optJSONObject(0)
+                ?: throw IncompleteHtmlException("Respons AI tidak memiliki pilihan jawaban.")
+            val message = choice.optJSONObject("message")
+                ?: throw IncompleteHtmlException("Respons AI kosong.")
+            val text = extractContent(message.opt("content"))
+            val finishReason = choice.optString("finish_reason").orEmpty()
+
+            if (text.isBlank()) {
+                val refusal = message.optString("refusal").orEmpty()
+                throw IncompleteHtmlException(
+                    refusal.ifBlank {
+                        "Model mengembalikan jawaban kosong (finish_reason: ${finishReason.ifBlank { "unknown" }})."
+                    }
+                )
+            }
+            ModelResponse(text, finishReason)
         }
     }
 
-    private class ModelUnavailableException(message: String) : IllegalStateException(message)
+    private fun systemPrompt(): String = """
+        Kamu adalah senior Android WebView application engineer dan game developer 2D.
+        Tugasmu menghasilkan satu dokumen HTML mandiri untuk dijadikan APK melalui Android WebView.
+        KELUARAN WAJIB:
+        - Satu dokumen HTML lengkap, dimulai dengan <!doctype html> atau <html> dan diakhiri </html>.
+        - Semua CSS dan JavaScript harus inline di dokumen yang sama.
+        - Jangan gunakan Markdown code fence, pengantar, penjelasan, atau teks di luar HTML.
+        KUALITAS:
+        - Pahami ruang lingkup prompt dan implementasikan fungsi utama terlebih dahulu.
+        - Mobile-first untuk Android portrait dan landscape bila relevan.
+        - Interaksi touch harus nyaman, layout responsif, teks terbaca, dan state jelas.
+        - Semua tombol harus memiliki aksi nyata; jangan membuat tombol dekoratif atau placeholder.
+        - Sertakan loading, empty state, error state, dan konfirmasi untuk aksi penting bila relevan.
+        - Untuk game 2D gunakan Canvas/SVG/CSS yang ringan, game loop yang aman, pause/resume, skor, dan restart.
+        - Simpan preferensi atau progress lokal dengan localStorage bila sesuai.
+        KOMPATIBILITAS:
+        - Jangan memerlukan framework, CDN, module import, server, atau aset eksternal kecuali diminta.
+        - Jangan memakai JavaScript bridge native atau menganggap permission Android tersedia otomatis.
+        - Jangan mengklaim membuat Kotlin native, Unity, Godot, atau game 3D.
+        - Hindari popup, mixed content, akses file lokal, dan API browser yang tidak didukung.
+        - Tutup semua tag, fungsi, dan blok script. Pastikan tidak ada TODO atau teks terpotong.
+        Jika permintaan terlalu besar untuk satu HTML, buat versi playable/prototype yang solid dengan mekanik inti dan jelaskan batasannya hanya melalui UI aplikasinya, bukan di luar HTML.
+    """.trimIndent()
 
-    private const val DEFAULT_MODEL = "cohere/north-mini-code:free"
-    private const val FALLBACK_MODEL = "nvidia/nemotron-3.5-lightning:free"
+    private fun buildUserPrompt(prompt: String): String =
+        "Buat project berdasarkan spesifikasi pengguna berikut. Implementasikan fitur prioritas yang benar-benar bisa berjalan. " +
+            "Kembalikan satu file HTML penuh.\n\nSPESIFIKASI:\n" + prompt.trim()
 
     private fun extractContent(content: Any?): String = when (content) {
         is String -> content
         is JSONArray -> buildString {
             for (index in 0 until content.length()) {
                 val item = content.optJSONObject(index) ?: continue
-                append(item.optString("text"))
+                if (item.optString("type") == "text" || item.has("text")) {
+                    append(item.optString("text"))
+                }
             }
         }
         else -> ""
     }
 
+    private fun isCompleteHtml(raw: String): Boolean {
+        val value = raw.trim()
+        return value.contains("<html", ignoreCase = true) &&
+            value.contains("</html>", ignoreCase = true)
+    }
+
     private fun normalizeHtml(raw: String): String {
         var value = raw.trim()
-        value = value.replace(Regex("^```(?:html)?\\s*", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("\\s*```$"), "")
+        value = value
+            .replace(Regex("^\u0060\u0060\u0060(?:html)?\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s*\u0060\u0060\u0060$"), "")
             .trim()
 
-        val doctypeIndex = value.indexOf("<!doctype html", ignoreCase = true)
         val htmlIndex = value.indexOf("<html", ignoreCase = true)
-        val start = listOf(doctypeIndex, htmlIndex).filter { it >= 0 }.minOrNull()
-        if (start != null && start > 0) value = value.substring(start)
+        val doctypeIndex = value.indexOf("<!doctype html", ignoreCase = true)
+        val start = listOf(htmlIndex, doctypeIndex).filter { it >= 0 }.minOrNull()
+            ?: throw IncompleteHtmlException("Tag HTML pembuka tidak ditemukan.")
+        value = value.substring(start)
 
-        require(value.contains("<html", ignoreCase = true) && value.contains("</html>", ignoreCase = true)) {
-            "AI tidak mengembalikan dokumen HTML lengkap. Coba ulangi atau pilih model lain."
-        }
+        val closeIndex = value.lastIndexOf("</html>", ignoreCase = true)
+        if (closeIndex < 0) throw IncompleteHtmlException("Tag </html> penutup tidak ditemukan.")
+        value = value.substring(0, closeIndex + "</html>".length)
+
         require(value.length >= 120) { "Hasil HTML terlalu pendek dan kemungkinan tidak lengkap." }
+        require(value.contains("<body", ignoreCase = true) && value.contains("</body>", ignoreCase = true)) {
+            "Dokumen HTML belum memiliki body yang lengkap."
+        }
         return value
     }
+
+    private data class ModelResponse(
+        val content: String,
+        val finishReason: String
+    )
+
+    private class ModelUnavailableException(message: String) : IOException(message)
+    private class IncompleteHtmlException(message: String) : IOException(message)
+
+    private const val DEFAULT_MODEL = "cohere/north-mini-code:free"
+    private const val FALLBACK_MODEL = "nvidia/nemotron-3.5-lightning:free"
+
+    // North Mini Code supports up to 64K output tokens; 32K leaves room for prompt/context.
+    private const val INITIAL_MAX_TOKENS = 32_000
+    private const val CONTINUATION_MAX_TOKENS = 16_000
+    private const val REPAIR_MAX_TOKENS = 24_000
+    private const val MAX_CONTINUATIONS = 2
+    private const val MAX_REPAIR_CONTEXT_CHARS = 90_000
 }
