@@ -41,6 +41,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -62,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -251,7 +253,11 @@ private fun BuildAppScreen() {
                         .background(Color(0xFF20242B)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("B", color = Bright, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    Image(
+                        painter = painterResource(id = com.buildapp.builder.R.drawable.ic_build_app),
+                        contentDescription = "Build.APP",
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
 
@@ -569,6 +575,7 @@ private fun BuildAppScreen() {
                 ApkResultCard(
                     name = projectName,
                     apk = apk,
+                    iconBitmap = logo?.bitmap,
                     onInstall = { installApk(context, apk) },
                     onSave = { saveApkLauncher.launch(apk.name) },
                     onShare = { shareApk(context, apk) }
@@ -714,22 +721,46 @@ private fun PermissionRow(
 
 @Composable
 private fun StatusPanel(status: String, busy: Boolean) {
+    val isSuccess = status.startsWith("SUCCESS") || status.startsWith("OK")
+    val isError = status.contains("ERROR")
+    val stage = when {
+        status.startsWith("AI") -> "AI GENERATION"
+        status.startsWith("BUILD") -> "ANDROID BUILD"
+        isSuccess -> "PROJECT READY"
+        isError -> "NEEDS ATTENTION"
+        else -> "SYSTEM STATUS"
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = PanelRaised),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Panel),
         border = androidx.compose.foundation.BorderStroke(1.dp, Stroke)
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp)
         ) {
-            if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Accent)
-            else Box(Modifier.size(8.dp).clip(CircleShape).background(if (status.startsWith("SUCCESS") || status.startsWith("OK")) Success else Accent))
-            Column(Modifier.weight(1f)) {
-                Text("SYSTEM STATUS", color = Muted, fontSize = 8.sp, letterSpacing = 1.sp)
-                Text(status, fontSize = 10.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(stage, color = if (isError) Color(0xFFFF8C91) else Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                    Text(status.substringAfter("//", status).trim(), color = Bright, fontSize = 11.sp, lineHeight = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+                if (busy) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp, color = Accent)
+                } else {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (isSuccess) Success else if (isError) Color(0xFFFF8C91) else Muted))
+                }
+            }
+            if (busy) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                    color = Accent,
+                    trackColor = PanelRaised
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("PROSES BERJALAN", color = Muted, fontSize = 8.sp, letterSpacing = 0.8.sp)
+                    Text("JANGAN TUTUP APLIKASI", color = Muted, fontSize = 8.sp, letterSpacing = 0.5.sp)
+                }
             }
         }
     }
@@ -739,37 +770,53 @@ private fun StatusPanel(status: String, busy: Boolean) {
 private fun ApkResultCard(
     name: String,
     apk: File,
+    iconBitmap: Bitmap?,
     onInstall: () -> Unit,
     onSave: () -> Unit,
     onShare: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(17.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF102019)),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF28513E))
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF102B29)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF28665B))
     ) {
-        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF1D3A2D)),
+                    modifier = Modifier.size(62.dp).clip(RoundedCornerShape(17.dp)).background(PanelRaised),
                     contentAlignment = Alignment.Center
-                ) { Text("APK", color = Success, fontWeight = FontWeight.Bold, fontSize = 11.sp) }
-                Column(Modifier.weight(1f)) {
-                    Text(name, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("✓ SELESAI  •  ${apk.length() / 1024} KB", color = Success, fontSize = 9.sp)
-                    Text(apk.name, color = Muted, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                ) {
+                    if (iconBitmap != null) {
+                        Image(
+                            bitmap = iconBitmap.asImageBitmap(),
+                            contentDescription = "Ikon $name",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Image(
+                            painter = painterResource(id = com.buildapp.builder.R.drawable.ic_build_app),
+                            contentDescription = "Ikon aplikasi",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("APK BERHASIL DIBUAT", color = Success, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text(name, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${apk.length() / 1024} KB  •  SIAP DIPASANG", color = Muted, fontSize = 9.sp)
                 }
             }
             Button(
                 onClick = onInstall,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(11.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(15.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Bright, contentColor = Ink)
-            ) { Text("INSTAL APK", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+            ) { Text("INSTAL APLIKASI", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onSave, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("SIMPAN", fontSize = 9.sp) }
-                OutlinedButton(onClick = onShare, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("BAGIKAN", fontSize = 9.sp) }
+                OutlinedButton(onClick = onSave, modifier = Modifier.weight(1f), shape = RoundedCornerShape(13.dp)) { Text("SIMPAN APK", fontSize = 10.sp) }
+                OutlinedButton(onClick = onShare, modifier = Modifier.weight(1f), shape = RoundedCornerShape(13.dp)) { Text("BAGIKAN", fontSize = 10.sp) }
             }
         }
     }
