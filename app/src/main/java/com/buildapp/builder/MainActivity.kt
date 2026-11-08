@@ -460,7 +460,11 @@ private fun BuildAppScreen() {
                         status = "AI // mengirim instruksi..."
                         scope.launch {
                             try {
-                                generatedHtml = OpenRouterClient.generateHtml(prompt, config)
+                                generatedHtml = OpenRouterClient.generateHtml(prompt, config) { stage ->
+                                    withContext(Dispatchers.Main) {
+                                        status = "AI // $stage"
+                                    }
+                                }
                                 previewVersion++
                                 status = "OK // HTML dibuat. Periksa preview sebelum build."
                             } catch (error: Exception) {
