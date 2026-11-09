@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -317,7 +318,7 @@ private fun BuildAppScreen() {
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     OutlinedTextField(
                         value = versionNameInput,
-                        onValueChange = { versionNameInput = it.filter { c -> c.isLetterOrDigit() || c in "._+-" }.take(30) },
+                        onValueChange = { versionNameInput = it.filter { c -> c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c in "._+-" }.take(30) },
                         modifier = Modifier.weight(1f),
                         label = { Text("Version name") },
                         placeholder = { Text("1.1") },
