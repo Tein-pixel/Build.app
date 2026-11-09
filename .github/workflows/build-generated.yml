@@ -155,28 +155,64 @@ jobs:
               output.write("app_name_b64=" + base64.b64encode(name.encode("utf-8")).decode("ascii") + "\n")
           PY
 
-      - name: Build and sign APK (debug signing key)
+      - name: Build and sign APK
+        id: build-apk
         env:
           APP_NAME_B64: ${{ steps.project.outputs.app_name_b64 }}
           APP_ID: ${{ steps.project.outputs.app_id }}
           VERSION_CODE: ${{ steps.project.outputs.version_code }}
           VERSION_NAME: ${{ steps.project.outputs.version_name }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.BUILDAPP_RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.BUILDAPP_RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.BUILDAPP_RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.BUILDAPP_RELEASE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          set +x
           APP_NAME="$(printf '%s' "$APP_NAME_B64" | base64 --decode)"
-          gradle -p generated-template --no-daemon :app:assembleDebug \
-            -PgeneratedAppId="$APP_ID" \
-            -PgeneratedAppName="$APP_NAME" \
-            -PgeneratedVersionCode="$VERSION_CODE" \
+          COMMON_ARGS=(
+            -PgeneratedAppId="$APP_ID"
+            -PgeneratedAppName="$APP_NAME"
+            -PgeneratedVersionCode="$VERSION_CODE"
             -PgeneratedVersionName="$VERSION_NAME"
+          )
+
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ] &&
+             [ -n "$RELEASE_KEYSTORE_PASSWORD" ] &&
+             [ -n "$RELEASE_KEY_ALIAS" ] &&
+             [ -n "$RELEASE_KEY_PASSWORD" ]; then
+            KEYSTORE_PATH="$RUNNER_TEMP/buildapp-release.jks"
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            test -s "$KEYSTORE_PATH"
+            gradle -p generated-template --no-daemon :app:assembleRelease "${COMMON_ARGS[@]}" \
+              -PgeneratedReleaseSigningEnabled=true \
+              -PgeneratedReleaseStoreFile="$KEYSTORE_PATH" \
+              -PgeneratedReleaseStorePassword="$RELEASE_KEYSTORE_PASSWORD" \
+              -PgeneratedReleaseKeyAlias="$RELEASE_KEY_ALIAS" \
+              -PgeneratedReleaseKeyPassword="$RELEASE_KEY_PASSWORD"
+            APK_PATH="generated-template/app/build/outputs/apk/release/app-release.apk"
+            SIGNING_MODE="release"
+          else
+            gradle -p generated-template --no-daemon :app:assembleDebug "${COMMON_ARGS[@]}"
+            APK_PATH="generated-template/app/build/outputs/apk/debug/app-debug.apk"
+            SIGNING_MODE="debug"
+            echo "::warning::Release keystore secrets are not configured. This APK uses a temporary debug key and may not be updateable over a previous build."
+          fi
+
+          test -s "$APK_PATH"
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "signing_mode=$SIGNING_MODE" >> "$GITHUB_OUTPUT"
 
       - name: Verify generated APK signature
-        run: "$ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose --print-certs generated-template/app/build/outputs/apk/debug/app-debug.apk"
+        env:
+          APK_PATH: ${{ steps.build-apk.outputs.apk_path }}
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK_PATH"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.project.outputs.artifact_name }}
-          path: generated-template/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.build-apk.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 7

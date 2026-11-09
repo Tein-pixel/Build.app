@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -88,15 +89,15 @@ import java.io.File
 import java.util.Locale
 import java.util.UUID
 
-private val Ink = Color(0xFF080D18)
-private val Panel = Color(0xFF111A2B)
-private val PanelRaised = Color(0xFF18243A)
-private val Stroke = Color(0xFF293B59)
-private val Muted = Color(0xFFA5B2C8)
-private val Bright = Color(0xFFF4F7FF)
-private val Accent = Color(0xFF70A9FF)
-private val AccentViolet = Color(0xFF9C8BFF)
-private val Success = Color(0xFF72E0B0)
+private val Ink = Color(0xFF07090C)
+private val Panel = Color(0xFF101419)
+private val PanelRaised = Color(0xFF181F27)
+private val Stroke = Color(0xFF303943)
+private val Muted = Color(0xFFA8B1BC)
+private val Bright = Color(0xFFF3F5F7)
+private val Accent = Color(0xFF73B8FF)
+private val AccentViolet = Color(0xFF9EAFFF)
+private val Success = Color(0xFF79D7B3)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -166,6 +167,9 @@ private fun BuildAppScreen() {
     var showAdvancedSettings by rememberSaveable { mutableStateOf(false) }
     var projectName by rememberSaveable { mutableStateOf("Aplikasi Baru") }
     var packageId by rememberSaveable { mutableStateOf(createDefaultPackageId()) }
+    var versionCodeInput by rememberSaveable { mutableStateOf("1") }
+    var versionNameInput by rememberSaveable { mutableStateOf("1.0") }
+    var buildProfile by rememberSaveable { mutableStateOf("STUDIO") }
     var prompt by rememberSaveable { mutableStateOf("") }
     var logo by remember { mutableStateOf<LogoPayload?>(null) }
     var optionalPermissions by remember { mutableStateOf(setOf<String>()) }
@@ -312,6 +316,26 @@ private fun BuildAppScreen() {
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    OutlinedTextField(
+                        value = versionNameInput,
+                        onValueChange = { versionNameInput = it.filter { c -> c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c in "._+-" }.take(30) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Version name") },
+                        placeholder = { Text("1.1") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    OutlinedTextField(
+                        value = versionCodeInput,
+                        onValueChange = { versionCodeInput = it.filter(Char::isDigit).take(9) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Version code") },
+                        placeholder = { Text("2") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
             }
 
             SectionCard(number = "02", title = "LOGO (OPSIONAL)", subtitle = "ICON LAUNCHER APK") {
@@ -405,6 +429,37 @@ private fun BuildAppScreen() {
             }
 
             SectionCard(number = "04", title = "DESKRIPSI IDE", subtitle = "APA YANG INGIN KAMU BANGUN?") {
+                Text("PROFIL GENERASI", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    FilterChip(
+                        selected = buildProfile == "LITE",
+                        onClick = { buildProfile = "LITE" },
+                        label = { Text("LITE", fontSize = 10.sp) },
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    FilterChip(
+                        selected = buildProfile == "STUDIO",
+                        onClick = { buildProfile = "STUDIO" },
+                        label = { Text("STUDIO", fontSize = 10.sp) },
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    FilterChip(
+                        selected = buildProfile == "GAME",
+                        onClick = { buildProfile = "GAME" },
+                        label = { Text("GAME 2D", fontSize = 10.sp) },
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+                Text(
+                    when (buildProfile) {
+                        "LITE" -> "Prioritas: ringan, cepat dibuka, offline-first, dan aset minimal."
+                        "GAME" -> "Prioritas: kontrol sentuh, game loop, pause, skor, dan restart."
+                        else -> "Prioritas: aplikasi interaktif, navigasi, validasi, dan penyimpanan lokal."
+                    },
+                    color = Muted,
+                    fontSize = 9.sp,
+                    lineHeight = 13.sp
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     FilterChip(
                         selected = false,
@@ -460,7 +515,7 @@ private fun BuildAppScreen() {
                         status = "AI // mengirim instruksi..."
                         scope.launch {
                             try {
-                                generatedHtml = OpenRouterClient.generateHtml(prompt, config) { stage ->
+                                generatedHtml = OpenRouterClient.generateHtml(buildProfilePrompt(prompt, buildProfile), config) { stage ->
                                     withContext(Dispatchers.Main) {
                                         status = "AI // $stage"
                                     }
@@ -503,6 +558,8 @@ private fun BuildAppScreen() {
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 settings.allowFileAccess = false
+                                settings.allowFileAccessFromFileURLs = false
+                                settings.allowUniversalAccessFromFileURLs = false
                                 settings.allowContentAccess = false
                                 settings.javaScriptCanOpenWindowsAutomatically = false
                                 settings.setSupportMultipleWindows(false)
@@ -531,6 +588,10 @@ private fun BuildAppScreen() {
                                     status = "ERROR // package ID tidak valid"
                                     return@Button
                                 }
+                                if ((versionCodeInput.toIntOrNull() ?: 0) < 1 || versionNameInput.isBlank()) {
+                                    status = "ERROR // version name/code tidak valid"
+                                    return@Button
+                                }
                                 if (config.githubOwner.isBlank() || config.githubRepo.isBlank() || config.githubToken.isBlank()) {
                                     showSettings = true
                                     status = "SETUP // isi GitHub di Settings untuk build APK"
@@ -549,7 +610,9 @@ private fun BuildAppScreen() {
                                                 packageId = packageId,
                                                 html = html,
                                                 permissions = optionalPermissions.toList(),
-                                                iconBase64 = logo?.base64.orEmpty()
+                                                iconBase64 = logo?.base64.orEmpty(),
+                                                versionCode = versionCodeInput.toInt(),
+                                                versionName = versionNameInput
                                             )
                                         ) { message -> status = "BUILD // $message" }
                                         generatedApk = apk
@@ -860,6 +923,11 @@ private fun SettingsDialog(
     var repo by remember(initial) { mutableStateOf(initial.githubRepo) }
     var branch by remember(initial) { mutableStateOf(initial.githubBranch) }
     var token by remember(initial) { mutableStateOf(initial.githubToken) }
+    val modelScope = rememberCoroutineScope()
+    var modelOptions by remember { mutableStateOf<List<OpenRouterClient.ModelOption>>(emptyList()) }
+    var modelDropdownOpen by remember { mutableStateOf(false) }
+    var loadingModels by remember { mutableStateOf(false) }
+    var modelStatus by remember { mutableStateOf("Katalog model belum dimuat.") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -883,12 +951,84 @@ private fun SettingsDialog(
                 )
                 OutlinedTextField(
                     value = modelId,
-                    onValueChange = { modelId = it },
+                    onValueChange = { modelId = it.trim().take(180) },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Model ID") },
-                    supportingText = { Text("Contoh: cohere/north-mini-code:free") },
+                    supportingText = { Text("Bisa pilih otomatis atau masukkan model ID sendiri.") },
                     singleLine = true,
                     shape = RoundedCornerShape(11.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        enabled = !loadingModels && apiKey.isNotBlank(),
+                        onClick = {
+                            loadingModels = true
+                            modelStatus = "Menghubungi OpenRouter dan mengambil katalog model…"
+                            modelScope.launch {
+                                try {
+                                    modelOptions = OpenRouterClient.listModels(apiKey)
+                                    modelDropdownOpen = modelOptions.isNotEmpty()
+                                    modelStatus = "Terhubung · ${modelOptions.size} model teks ditemukan."
+                                } catch (error: Exception) {
+                                    modelStatus = "Katalog gagal dimuat: ${error.message ?: "periksa API key dan koneksi."}"
+                                } finally {
+                                    loadingModels = false
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        if (loadingModels) {
+                            CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(7.dp))
+                        }
+                        Text(if (loadingModels) "MEMUAT…" else "MUAT KATALOG MODEL", fontSize = 9.sp)
+                    }
+                    TextButton(onClick = {
+                        modelId = "openrouter/free"
+                        modelStatus = "Menggunakan router gratis otomatis. Batas kuota provider tetap berlaku."
+                    }) {
+                        Text("AUTO FREE", fontSize = 9.sp)
+                    }
+                }
+                androidx.compose.material3.DropdownMenu(
+                    expanded = modelDropdownOpen,
+                    onDismissRequest = { modelDropdownOpen = false },
+                    modifier = Modifier.heightIn(max = 360.dp)
+                ) {
+                    modelOptions.take(30).forEach { option ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(option.name, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        "${option.id} · ${option.contextLabel} · ${option.priceLabel}",
+                                        fontSize = 8.sp,
+                                        color = Muted,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            },
+                            onClick = {
+                                modelId = option.id
+                                modelDropdownOpen = false
+                                modelStatus = "Model dipilih: ${option.id}"
+                            }
+                        )
+                    }
+                }
+                Text(modelStatus, color = Muted, fontSize = 9.sp, lineHeight = 13.sp)
+                Text(
+                    "Model gratis tetap memiliki batas penggunaan dan dapat berubah ketersediaannya.",
+                    color = Muted,
+                    fontSize = 8.sp,
+                    lineHeight = 12.sp
                 )
                 Text("GITHUB ACTIONS", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 OutlinedTextField(owner, { owner = it }, Modifier.fillMaxWidth(), label = { Text("GitHub owner") }, singleLine = true, shape = RoundedCornerShape(11.dp))
@@ -912,7 +1052,7 @@ private fun SettingsDialog(
                 onSave(
                     BuildConfig(
                         openRouterKey = apiKey.trim(),
-                        modelId = modelId.trim().ifBlank { "cohere/north-mini-code:free" },
+                        modelId = modelId.trim().ifBlank { "openrouter/free" },
                         githubOwner = owner.trim(),
                         githubRepo = repo.trim(),
                         githubBranch = branch.trim().ifBlank { "main" },
@@ -1032,6 +1172,30 @@ private fun shareApk(context: Context, apk: File) {
 
 private fun toast(context: Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+}
+
+private fun buildProfilePrompt(prompt: String, profile: String): String {
+    val profileDirective = when (profile) {
+        "LITE" -> """
+            BUILD PROFILE: LITE
+            Buat versi paling ringan dan hemat memori. Utamakan satu alur utama, CSS sederhana,
+            aset inline seperlunya, tanpa dependensi CDN, dan tetap berfungsi saat offline.
+        """.trimIndent()
+        "GAME" -> """
+            BUILD PROFILE: GAME 2D
+            Buat game 2D yang benar-benar dapat dimainkan di layar sentuh Android.
+            Gunakan Canvas atau SVG inline, game loop yang dapat dihentikan saat aplikasi pause,
+            kontrol sentuh yang responsif, skor, game over, pause, dan restart.
+            Jangan mengklaim menghasilkan game engine native atau game 3D.
+        """.trimIndent()
+        else -> """
+            BUILD PROFILE: STUDIO
+            Buat aplikasi interaktif yang lebih lengkap. Rancang hierarki layar yang jelas,
+            navigasi, validasi input, state kosong/loading/error, penyimpanan lokal yang sesuai,
+            dan aksi nyata untuk setiap tombol. Tetap hasilkan satu dokumen HTML mandiri.
+        """.trimIndent()
+    }
+    return "$profileDirective\n\nDESKRIPSI PENGGUNA:\n${prompt.trim()}"
 }
 
 private fun isValidPackageId(value: String): Boolean =

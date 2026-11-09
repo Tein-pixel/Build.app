@@ -21,7 +21,38 @@ import java.util.concurrent.TimeUnit
  * - one focused repair pass before returning an error,
  * - text responses returned as either a string or content-block array.
  */
+/**
+ * OpenRouter model catalogue is fetched at runtime. Do not keep a fixed list of
+ * provider model IDs in the UI: availability and pricing change frequently.
+ */
 object OpenRouterClient {
+
+    data class ModelOption(
+        val id: String,
+        val name: String,
+        val contextLength: Int,
+        val promptPricePerMillion: Double,
+        val completionPricePerMillion: Double
+    ) {
+        val isFree: Boolean
+            get() = promptPricePerMillion == 0.0 && completionPricePerMillion == 0.0
+    
+        val contextLabel: String
+            get() = if (contextLength > 0) "${contextLength / 1000}K context" else "context unknown"
+    
+        val priceLabel: String
+            get() = if (isFree) {
+                "FREE · quota provider berlaku"
+            } else {
+                String.format(
+                    java.util.Locale.US,
+                    "IN $%.3f/M · OUT $%.3f/M",
+                    promptPricePerMillion,
+                    completionPricePerMillion
+                )
+            }
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
@@ -31,6 +62,69 @@ object OpenRouterClient {
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
+    suspend fun listModels(apiKey: String): List<ModelOption> = withContext(Dispatchers.IO) {
+        require(apiKey.isNotBlank()) { "OpenRouter API key belum diisi." }
+
+        val request = Request.Builder()
+            .url("https://openrouter.ai/api/v1/models?output_modalities=text&sort=pricing-low-to-high")
+            .header("Authorization", "Bearer ${apiKey.trim()}")
+            .header("Accept", "application/json")
+            .header("X-Title", "Build.APP")
+            .get()
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val message = runCatching {
+                    JSONObject(body).optJSONObject("error")?.optString("message")
+                }.getOrNull().orEmpty()
+                throw IllegalStateException(
+                    "Gagal mengambil katalog model OpenRouter (${response.code}): " +
+                        message.ifBlank { body.take(240) }
+                )
+            }
+
+            val data = JSONObject(body).optJSONArray("data")
+                ?: throw IllegalStateException("Katalog model OpenRouter tidak memiliki daftar data.")
+
+            buildList {
+                for (index in 0 until data.length()) {
+                    val item = data.optJSONObject(index) ?: continue
+                    val id = item.optString("id").trim()
+                    if (id.isBlank()) continue
+
+                    val architecture = item.optJSONObject("architecture")
+                    val outputs = architecture?.optJSONArray("output_modalities")
+                    if (outputs != null && (0 until outputs.length()).none {
+                            outputs.optString(it).equals("text", ignoreCase = true)
+                        }) continue
+
+                    val pricing = item.optJSONObject("pricing") ?: continue
+                    val input = pricing.optString("prompt").toDoubleOrNull() ?: continue
+                    val output = pricing.optString("completion").toDoubleOrNull() ?: continue
+                    val context = item.optInt("context_length", 0).coerceAtLeast(0)
+
+                    add(
+                        ModelOption(
+                            id = id,
+                            name = item.optString("name").ifBlank { id },
+                            contextLength = context,
+                            promptPricePerMillion = input * 1_000_000.0,
+                            completionPricePerMillion = output * 1_000_000.0
+                        )
+                    )
+                }
+            }.distinctBy { it.id }
+                .sortedWith(
+                    compareBy<ModelOption> { if (it.isFree) 0 else 1 }
+                        .thenBy { it.promptPricePerMillion + it.completionPricePerMillion }
+                        .thenByDescending { it.contextLength }
+                )
+                .take(100)
+        }
+    }
+
     suspend fun generateHtml(
         userPrompt: String,
         config: BuildConfig,
@@ -39,7 +133,7 @@ object OpenRouterClient {
         require(config.openRouterKey.isNotBlank()) { "API key OpenRouter belum diisi." }
         require(config.modelId.isNotBlank()) { "Model ID belum diisi." }
         require(userPrompt.isNotBlank()) { "Deskripsi project masih kosong." }
-        require(userPrompt.length <= 18_000) { "Prompt terlalu panjang. Batas awal 18.000 karakter." }
+        require(userPrompt.length <= 20_000) { "Prompt terlalu panjang. Batas awal 20.000 karakter." }
 
         val primary = config.modelId.trim()
         val candidates = listOf(primary, DEFAULT_MODEL, FALLBACK_MODEL).distinct()
@@ -311,13 +405,14 @@ object OpenRouterClient {
     private class ModelUnavailableException(message: String) : IOException(message)
     private class IncompleteHtmlException(message: String) : IOException(message)
 
-    private const val DEFAULT_MODEL = "cohere/north-mini-code:free"
-    private const val FALLBACK_MODEL = "nvidia/nemotron-3.5-lightning:free"
+    private const val DEFAULT_MODEL = "openrouter/free"
+    private const val FALLBACK_MODEL = "openrouter/free"
 
-    // North Mini Code supports up to 64K output tokens; 32K leaves room for prompt/context.
-    private const val INITIAL_MAX_TOKENS = 32_000
-    private const val CONTINUATION_MAX_TOKENS = 16_000
-    private const val REPAIR_MAX_TOKENS = 24_000
+    // Conservative output limits keep automatic free-model routing compatible
+    // with a wider range of provider context and completion limits.
+    private const val INITIAL_MAX_TOKENS = 8_192
+    private const val CONTINUATION_MAX_TOKENS = 4_096
+    private const val REPAIR_MAX_TOKENS = 8_192
     private const val MAX_CONTINUATIONS = 2
     private const val MAX_REPAIR_CONTEXT_CHARS = 90_000
 }
