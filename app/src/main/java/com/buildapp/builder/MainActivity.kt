@@ -558,6 +558,8 @@ private fun BuildAppScreen() {
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 settings.allowFileAccess = false
+                                settings.allowFileAccessFromFileURLs = false
+                                settings.allowUniversalAccessFromFileURLs = false
                                 settings.allowContentAccess = false
                                 settings.javaScriptCanOpenWindowsAutomatically = false
                                 settings.setSupportMultipleWindows(false)
