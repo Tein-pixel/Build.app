@@ -89,15 +89,15 @@ import java.io.File
 import java.util.Locale
 import java.util.UUID
 
-private val Ink = Color(0xFF080D18)
-private val Panel = Color(0xFF111A2B)
-private val PanelRaised = Color(0xFF18243A)
-private val Stroke = Color(0xFF293B59)
-private val Muted = Color(0xFFA5B2C8)
-private val Bright = Color(0xFFF4F7FF)
-private val Accent = Color(0xFF70A9FF)
-private val AccentViolet = Color(0xFF9C8BFF)
-private val Success = Color(0xFF72E0B0)
+private val Ink = Color(0xFF07090C)
+private val Panel = Color(0xFF101419)
+private val PanelRaised = Color(0xFF181F27)
+private val Stroke = Color(0xFF303943)
+private val Muted = Color(0xFFA8B1BC)
+private val Bright = Color(0xFFF3F5F7)
+private val Accent = Color(0xFF73B8FF)
+private val AccentViolet = Color(0xFF9EAFFF)
+private val Success = Color(0xFF79D7B3)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
