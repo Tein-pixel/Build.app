@@ -169,6 +169,7 @@ private fun BuildAppScreen() {
     var packageId by rememberSaveable { mutableStateOf(createDefaultPackageId()) }
     var versionCodeInput by rememberSaveable { mutableStateOf("1") }
     var versionNameInput by rememberSaveable { mutableStateOf("1.0") }
+    var buildProfile by rememberSaveable { mutableStateOf("STUDIO") }
     var prompt by rememberSaveable { mutableStateOf("") }
     var logo by remember { mutableStateOf<LogoPayload?>(null) }
     var optionalPermissions by remember { mutableStateOf(setOf<String>()) }
@@ -428,6 +429,37 @@ private fun BuildAppScreen() {
             }
 
             SectionCard(number = "04", title = "DESKRIPSI IDE", subtitle = "APA YANG INGIN KAMU BANGUN?") {
+                Text("PROFIL GENERASI", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    FilterChip(
+                        selected = buildProfile == "LITE",
+                        onClick = { buildProfile = "LITE" },
+                        label = { Text("LITE", fontSize = 10.sp) },
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    FilterChip(
+                        selected = buildProfile == "STUDIO",
+                        onClick = { buildProfile = "STUDIO" },
+                        label = { Text("STUDIO", fontSize = 10.sp) },
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    FilterChip(
+                        selected = buildProfile == "GAME",
+                        onClick = { buildProfile = "GAME" },
+                        label = { Text("GAME 2D", fontSize = 10.sp) },
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+                Text(
+                    when (buildProfile) {
+                        "LITE" -> "Prioritas: ringan, cepat dibuka, offline-first, dan aset minimal."
+                        "GAME" -> "Prioritas: kontrol sentuh, game loop, pause, skor, dan restart."
+                        else -> "Prioritas: aplikasi interaktif, navigasi, validasi, dan penyimpanan lokal."
+                    },
+                    color = Muted,
+                    fontSize = 9.sp,
+                    lineHeight = 13.sp
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     FilterChip(
                         selected = false,
@@ -483,7 +515,7 @@ private fun BuildAppScreen() {
                         status = "AI // mengirim instruksi..."
                         scope.launch {
                             try {
-                                generatedHtml = OpenRouterClient.generateHtml(prompt, config) { stage ->
+                                generatedHtml = OpenRouterClient.generateHtml(buildProfilePrompt(prompt, buildProfile), config) { stage ->
                                     withContext(Dispatchers.Main) {
                                         status = "AI // $stage"
                                     }
@@ -1138,6 +1170,30 @@ private fun shareApk(context: Context, apk: File) {
 
 private fun toast(context: Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+}
+
+private fun buildProfilePrompt(prompt: String, profile: String): String {
+    val profileDirective = when (profile) {
+        "LITE" -> """
+            BUILD PROFILE: LITE
+            Buat versi paling ringan dan hemat memori. Utamakan satu alur utama, CSS sederhana,
+            aset inline seperlunya, tanpa dependensi CDN, dan tetap berfungsi saat offline.
+        """.trimIndent()
+        "GAME" -> """
+            BUILD PROFILE: GAME 2D
+            Buat game 2D yang benar-benar dapat dimainkan di layar sentuh Android.
+            Gunakan Canvas atau SVG inline, game loop yang dapat dihentikan saat aplikasi pause,
+            kontrol sentuh yang responsif, skor, game over, pause, dan restart.
+            Jangan mengklaim menghasilkan game engine native atau game 3D.
+        """.trimIndent()
+        else -> """
+            BUILD PROFILE: STUDIO
+            Buat aplikasi interaktif yang lebih lengkap. Rancang hierarki layar yang jelas,
+            navigasi, validasi input, state kosong/loading/error, penyimpanan lokal yang sesuai,
+            dan aksi nyata untuk setiap tombol. Tetap hasilkan satu dokumen HTML mandiri.
+        """.trimIndent()
+    }
+    return "$profileDirective\n\nDESKRIPSI PENGGUNA:\n${prompt.trim()}"
 }
 
 private fun isValidPackageId(value: String): Boolean =
