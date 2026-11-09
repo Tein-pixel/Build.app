@@ -206,7 +206,8 @@ jobs:
       - name: Verify generated APK signature
         env:
           APK_PATH: ${{ steps.build-apk.outputs.apk_path }}
-        run: "$ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose --print-certs "$APK_PATH""
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK_PATH"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
