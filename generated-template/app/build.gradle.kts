@@ -15,6 +15,21 @@ val generatedVersionCode = providers.gradleProperty("generatedVersionCode")
 val generatedVersionName = providers.gradleProperty("generatedVersionName")
     .orElse("1.0")
     .get()
+val generatedReleaseSigningEnabled = providers.gradleProperty("generatedReleaseSigningEnabled")
+    .orElse("false")
+    .get()
+    .toBoolean()
+val generatedReleaseStoreFile = providers.gradleProperty("generatedReleaseStoreFile").orNull
+val generatedReleaseStorePassword = providers.gradleProperty("generatedReleaseStorePassword").orNull
+val generatedReleaseKeyAlias = providers.gradleProperty("generatedReleaseKeyAlias").orNull
+val generatedReleaseKeyPassword = providers.gradleProperty("generatedReleaseKeyPassword").orNull
+
+if (generatedReleaseSigningEnabled) {
+    require(!generatedReleaseStoreFile.isNullOrBlank()) { "Release keystore path is missing." }
+    require(!generatedReleaseStorePassword.isNullOrBlank()) { "Release keystore password is missing." }
+    require(!generatedReleaseKeyAlias.isNullOrBlank()) { "Release key alias is missing." }
+    require(!generatedReleaseKeyPassword.isNullOrBlank()) { "Release key password is missing." }
+}
 
 android {
     namespace = "com.buildapp.generated"
@@ -29,6 +44,17 @@ android {
         resValue("string", "app_name", generatedAppName)
     }
 
+    signingConfigs {
+        if (generatedReleaseSigningEnabled) {
+            create("generatedRelease") {
+                storeFile = file(requireNotNull(generatedReleaseStoreFile))
+                storePassword = requireNotNull(generatedReleaseStorePassword)
+                keyAlias = requireNotNull(generatedReleaseKeyAlias)
+                keyPassword = requireNotNull(generatedReleaseKeyPassword)
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -40,8 +66,15 @@ android {
 
     buildTypes {
         debug {
-            // GitHub Actions signs this variant with its automatically generated debug key.
+            // Temporary signing for development builds only.
             isDebuggable = false
+        }
+        release {
+            isDebuggable = false
+            isMinifyEnabled = false
+            if (generatedReleaseSigningEnabled) {
+                signingConfig = signingConfigs.getByName("generatedRelease")
+            }
         }
     }
 }
